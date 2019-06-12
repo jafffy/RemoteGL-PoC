@@ -9,6 +9,7 @@
 <body>
 
 <script src="three.js"></script>
+<script src="libs/stats.min.js"></script>
 
 <script id="vertMaterial" type="x-shader/x-vertex">
     #define SHADER_NAME vertMaterial
@@ -53,8 +54,12 @@
 
 <script>
     let camera, scene, renderer;
+    let stats;
     const mesh_list = [];
     let loader = new THREE.BufferGeometryLoader();
+    let selected_object = null;
+    let selected_object_color  = null;
+    let start = window.performance.now();
 
     init();
     animate();
@@ -86,24 +91,27 @@
                 }
             });
 
-            for (let it = 0; it < 1000; ++it) {
+            for (let it = 0; it < 5000; ++it) {
                 let mesh = new THREE.Mesh( geometry, material );
-                mesh.position.x = Math.random() * 40 - 20;
-                mesh.position.y = Math.random() * 40 - 20;
-                mesh.position.z = Math.random() * 40 - 20;
+                mesh.position.x = Math.random() * 80 - 40;
+                mesh.position.y = Math.random() * 80 - 40;
+                mesh.position.z = Math.random() * 80 - 40;
 
                 mesh.rotation.x = Math.random() * 2 * Math.PI;
                 mesh.rotation.y = Math.random() * 2 * Math.PI;
                 mesh.rotation.z = Math.random() * 2 * Math.PI;
 
-                const scale = Math.random()
+                const scale = Math.random();
 
                 mesh.scale.x = scale;
                 mesh.scale.y = scale;
                 mesh.scale.z = scale;
 
                 mesh.material = material.clone();
-                mesh.material.uniforms['color'].value.setHex(Math.random() * 0xffffff);
+
+                mesh.color = Math.random() * 0xffffff;
+
+                mesh.material.uniforms['color'].value.setHex(mesh.color);
 
                 mesh_list.push(mesh);
 
@@ -120,6 +128,32 @@
 
         window.addEventListener( 'resize', onWindowResize, false );
 
+        document.addEventListener('mousemove', onDocumentMouseMove, false);
+
+        stats = new Stats();
+        document.body.appendChild(stats.dom);
+    }
+
+    function onDocumentMouseMove(event) {
+        let vector = new THREE.Vector3((event.clientX / window.innerWidth) * 2 - 1, -(event.clientY / window.innerHeight) * 2 + 1, 0.5);
+        vector = vector.unproject(camera);
+
+        let raycaster = new THREE.Raycaster(camera.position, vector.sub(camera.position).normalize());
+        const intersects = raycaster.intersectObjects(mesh_list);
+
+        if (selected_object != null) {
+            selected_object.material.uniforms['color'].value.setHex(selected_object_color);
+
+            selected_object = null;
+            selected_object_color = null;
+        }
+
+        if (intersects.length > 0) {
+            selected_object = intersects[0].object;
+            selected_object_color = selected_object.color;
+
+            selected_object.material.uniforms['color'].value.setHex(0xff0000);
+        }
     }
 
     function onWindowResize() {
@@ -132,6 +166,8 @@
 
     function animate() {
         requestAnimationFrame( animate );
+
+        stats.update();
 
         renderer.render( scene, camera );
     }
