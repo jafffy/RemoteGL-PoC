@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>three.js webgl - geometry - cube</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <link type="text/css" rel="stylesheet" href="main.css">
+</head>
+<body>
+
+<script src="three.js"></script>
+<script src="libs/stats.min.js"></script>
+
+<script id="planeVertMaterial" type="x-shader/x-vertex">
+    #define SHADER_NAME planeVertMaterial
+
+    precision highp float;
+
+    attribute vec3 position;
+    attribute vec2 uv;
+
+    varying vec2 vUV;
+
+    void main() {
+        gl_Position = vec4(position, 1.0);
+        vUV = uv;
+    }
+</script>
+
+<script id="planeFragMaterial" type="x-shader/x-fragment">
+    #define SHADER_NAME planeFragMaterial;
+
+    precision highp float;
+
+    uniform sampler2D tDiffuse;
+
+    varying vec2 vUV;
+
+    void main() {
+        gl_FragColor = texture2D(tDiffuse, vUV);
+    }
+</script>
+
+<script id="vertMaterial" type="x-shader/x-vertex">
+    #define SHADER_NAME vertMaterial
+
+    precision highp float;
+
+    uniform mat4 modelViewMatrix;
+    uniform mat4 projectionMatrix;
+
+    attribute vec3 position;
+
+    varying vec3 vPosition;
+
+    void main() {
+        vec3 positionEye = (modelViewMatrix * vec4(position, 1.0)).xyz;
+
+        vPosition = positionEye;
+
+        gl_Position = projectionMatrix * vec4(positionEye, 1.0);
+    }
+</script>
+
+<script id="fragMaterial" type="x-shader/x-fragment">
+    #define SHADER_NAME fragMaterial;
+
+    #extension GL_OES_standard_derivatives : enable
+
+    precision highp float;
+
+    uniform vec3 color;
+    varying vec3 vPosition;
+
+    void main() {
+        vec3 fdx = dFdx(vPosition);
+        vec3 fdy = dFdy(vPosition);
+        vec3 normal = normalize(cross(fdx, fdy));
+        float diffuse = dot(normal, vec3(0.0, 0.0, 1.0));
+
+        gl_FragColor = vec4(diffuse * color, 1.0);
+    }
+</script>
+
+<script>
+    let camera, scene, renderer;
+    let quad_scene, quad_texture;
+    let quadMaterial;
+    let stats;
+    const mesh_list = [];
+    let loader = new THREE.BufferGeometryLoader();
+    let selected_object = null;
+    let selected_object_color  = null;
+    let start = window.performance.now();
+
+    let pixelBuffer;
+
+    init();
+    animate();
+
+    function init() {
+        camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 1, 1000 );
+        camera.position.z = 40;
+
+        scene = new THREE.Scene();
+        quad_scene = new THREE.Scene();
+        quad_texture = new THREE.WebGLRenderTarget(window.innerWidth * 2, window.innerHeight * 2, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, format: THREE.RGBFormat });
+        pixelBuffer = new Uint8Array(window.innerWidth * 2 * window.innerHeight * 2 * 4);
+
+        loader.load('models/json/suzanne_buffergeometry.json', function(geo) {
+            geo = geo.toNonIndexed();
+            geo.computeBoundingBox();
+
+            let geometry = geo;
+
+            let vert = document.getElementById('vertMaterial').textContent;
+            let frag = document.getElementById('fragMaterial').textContent;
+
+            const material = new THREE.RawShaderMaterial({
+                vertexShader: vert,
+                fragmentShader: frag,
+                uniforms: {
+                    color: {
+                        value: new THREE.Color()
+                    }
+                }
+            });
+
+            for (let it = 0; it < 2500; ++it) {
+                let mesh = new THREE.Mesh( geometry, material );
+                mesh.position.x = Math.random() * 80 - 40;
+                mesh.position.y = Math.random() * 80 - 40;
+                mesh.position.z = Math.random() * 80 - 40;
+
+                mesh.rotation.x = Math.random() * 2 * Math.PI;
+                mesh.rotation.y = Math.random() * 2 * Math.PI;
+                mesh.rotation.z = Math.random() * 2 * Math.PI;
+
+                const scale = Math.random();
+
+                mesh.scale.x = scale;
+                mesh.scale.y = scale;
+                mesh.scale.z = scale;
+
+                mesh.material = material.clone();
+
+                mesh.color = Math.random() * 0xffffff;
+
+                mesh.material.uniforms['color'].value.setHex(mesh.color);
+
+                mesh_list.push(mesh);
+
+                scene.add( mesh );
+            }
+
+            let planeVert = document.getElementById('planeVertMaterial').textContent;
+            let planeFrag = document.getElementById('planeFragMaterial').textContent;
+
+            quadMaterial = new THREE.RawShaderMaterial({
+                vertexShader: planeVert,
+                fragmentShader: planeFrag,
+                uniforms: { tDiffuse: { value: quad_texture.texture } }
+            });
+
+            let quadMesh = new THREE.Mesh(
+                new THREE.PlaneGeometry(2, 2, 1, 1),
+                quadMaterial
+            );
+
+            quad_scene.add(quadMesh);
+        });
+
+        renderer = new THREE.WebGLRenderer( { antialias: true } );
+        renderer.setPixelRatio( window.devicePixelRatio );
+        renderer.setSize( window.innerWidth, window.innerHeight );
+        renderer.setClearColor(0xddddddd);
+
+        document.body.appendChild( renderer.domElement );
+
+        window.addEventListener( 'resize', onWindowResize, false );
+
+        document.addEventListener('mousemove', onDocumentMouseMove, false);
+
+        stats = new Stats();
+        document.body.appendChild(stats.dom);
+    }
+
+    function onDocumentMouseMove(event) {
+        let vector = new THREE.Vector3((event.clientX / window.innerWidth) * 2 - 1, -(event.clientY / window.innerHeight) * 2 + 1, 0.5);
+        vector = vector.unproject(camera);
+
+        let raycaster = new THREE.Raycaster(camera.position, vector.sub(camera.position).normalize());
+        const intersects = raycaster.intersectObjects(mesh_list);
+
+        if (selected_object != null) {
+            selected_object.material.uniforms['color'].value.setHex(selected_object_color);
+
+            selected_object = null;
+            selected_object_color = null;
+        }
+
+        if (intersects.length > 0) {
+            selected_object = intersects[0].object;
+            selected_object_color = selected_object.color;
+
+            selected_object.material.uniforms['color'].value.setHex(0xff0000);
+        }
+    }
+
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+
+        renderer.setSize( window.innerWidth, window.innerHeight );
+
+    }
+
+    function animate() {
+        requestAnimationFrame( animate );
+
+        renderer.setRenderTarget(quad_texture);
+        renderer.render( scene, camera );
+
+        renderer.readRenderTargetPixels(quad_texture, 0, 0, window.innerWidth * 2, window.innerHeight * 2, pixelBuffer);
+
+        const texture = new THREE.DataTexture( pixelBuffer, window.innerWidth*2, window.innerHeight*2, THREE.RGBFormat );
+        texture.needsUpdate = true;
+
+        quadMaterial.uniforms['tDiffuse'].value = texture;
+
+        renderer.setRenderTarget(null);
+        stats.update();
+        renderer.render(quad_scene, camera);
+    }
+
+</script>
+
+</body>
+</html>
