@@ -10,9 +10,51 @@
 
 <script src="three.js"></script>
 
+<script id="vertMaterial" type="x-shader/x-vertex">
+    #define SHADER_NAME vertMaterial
+
+    precision highp float;
+
+    uniform mat4 modelViewMatrix;
+    uniform mat4 projectionMatrix;
+
+    attribute vec3 position;
+
+    varying vec3 vPosition;
+
+    void main() {
+        vec3 positionEye = (modelViewMatrix * vec4(position, 1.0)).xyz;
+
+        vPosition = positionEye;
+
+        gl_Position = projectionMatrix * vec4(positionEye, 1.0);
+    }
+</script>
+
+<script id="fragMaterial" type="x-shader/x-fragment">
+    #define SHADER_NAME fragMaterial;
+
+    #extension GL_OES_standard_derivatives : enable
+
+    precision highp float;
+
+    uniform vec3 color;
+    varying vec3 vPosition;
+
+    void main() {
+        vec3 fdx = dFdx(vPosition);
+        vec3 fdy = dFdy(vPosition);
+        vec3 normal = normalize(cross(fdx, fdy));
+        float diffuse = dot(normal, vec3(0.0, 0.0, 1.0));
+
+        gl_FragColor = vec4(diffuse * color, 1.0);
+    }
+</script>
+
 <script>
     let camera, scene, renderer;
-    let mesh;
+    const mesh_list = [];
+    let loader = new THREE.BufferGeometryLoader();
 
     init();
     animate();
@@ -20,21 +62,55 @@
     function init() {
 
         camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 1, 1000 );
-        camera.position.z = 40;
+        camera.position.y = 20;
+        camera.position.z = 60;
 
         scene = new THREE.Scene();
 
-        let texture = new THREE.TextureLoader().load( 'textures/crate.gif' );
+        loader.load('models/json/suzanne_buffergeometry.json', function(geo) {
+            geo = geo.toNonIndexed();
+            geo.computeBoundingBox();
 
-        let geometry = new THREE.BoxBufferGeometry( 20, 20, 20 );
-        let material = new THREE.MeshBasicMaterial( { map: texture } );
+            let geometry = geo;
+            // let material = new THREE.MeshBasicMaterial();
 
-        mesh = new THREE.Mesh( geometry, material );
-        scene.add( mesh );
+            let vert = document.getElementById('vertMaterial').textContent;
+            let frag = document.getElementById('fragMaterial').textContent;
+
+            const material = new THREE.RawShaderMaterial({
+                vertexShader: vert,
+                fragmentShader: frag,
+                uniforms: {
+                    color: {
+                        value: new THREE.Color()
+                    }
+                }
+            });
+
+            for (let it = 0; it < 1000; ++it) {
+                let mesh = new THREE.Mesh( geometry, material );
+                mesh.position.x = Math.random() * 40;
+                mesh.position.y = Math.random() * 40;
+                mesh.position.z = Math.random() * 20;
+
+                mesh.rotation.x = Math.random() * 360;
+                mesh.rotation.y = Math.random() * 360;
+                mesh.rotation.z = Math.random() * 360;
+
+                mesh.material = material.clone();
+                mesh.material.uniforms['color'].value.setHex(Math.random() * 0xffffff);
+
+                mesh_list.push(mesh);
+
+                scene.add( mesh );
+            }
+        });
 
         renderer = new THREE.WebGLRenderer( { antialias: true } );
         renderer.setPixelRatio( window.devicePixelRatio );
         renderer.setSize( window.innerWidth, window.innerHeight );
+        renderer.setClearColor(0xddddddd);
+
         document.body.appendChild( renderer.domElement );
 
         window.addEventListener( 'resize', onWindowResize, false );
@@ -42,7 +118,6 @@
     }
 
     function onWindowResize() {
-
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
 
@@ -53,9 +128,6 @@
     function animate() {
 
         requestAnimationFrame( animate );
-
-        mesh.rotation.x += 0.005;
-        mesh.rotation.y += 0.01;
 
         renderer.render( scene, camera );
 
